@@ -40,12 +40,14 @@ bool receivingArtwork = false;
 // 0x02 + JPEG payload: image fragment
 // 0x03: finish image
 class ArtworkCallbacks : public NimBLECharacteristicCallbacks {
-  uint8_t onWrite(NimBLECharacteristic* characteristic,
-                  NimBLEAttValue& value,
-                  NimBLEConnInfo& connection) override {
+  void onWrite(NimBLECharacteristic* characteristic,
+               NimBLEConnInfo& connection) override {
+    // NimBLE-Arduino 2.x calls onWrite with two arguments.
+    // Read a safe copy of the value written by the iPhone app.
+    NimBLEAttValue value = characteristic->getValue();
     const uint8_t* bytes = value.data();
     size_t len = value.size();
-    if (len == 0) return NimBLEGattStatus::Success;
+    if (len == 0) return;
 
     if (bytes[0] == 0x01 && len == 5) {
       uint32_t total = ((uint32_t)bytes[1]) |
@@ -83,7 +85,6 @@ class ArtworkCallbacks : public NimBLECharacteristicCallbacks {
       }
       receivingArtwork = false;
     }
-    return NimBLEGattStatus::Success;
   }
 };
 
@@ -170,7 +171,7 @@ void setup() {
     ARTIST_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY, 200);
   NimBLECharacteristic* incomingArt = bridge->createCharacteristic(
     ARTWORK_UUID, NIMBLE_PROPERTY::WRITE, 512);
-  incomingArt->setCallbacks(artworkCallbacks);
+  incomingArt->setCallbacks(&artworkCallbacks);
   titleCharacteristic->setValue(" ");
   artistCharacteristic->setValue(" ");
   bridge->start();
