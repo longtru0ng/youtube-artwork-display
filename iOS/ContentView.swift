@@ -34,7 +34,7 @@ final class ArtworkBridge: NSObject, ObservableObject, CBCentralManagerDelegate,
 
     override init() {
         super.init()
-        central = CBCentralManager(delegate: self, queue: nil)
+        central = CBCentralManager(delegate: self, queue: nil, options: [CBCentralManagerOptionRestoreIdentifierKey: "com.s3musicdemo.artwork.central"])
     }
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
@@ -47,11 +47,42 @@ final class ArtworkBridge: NSObject, ObservableObject, CBCentralManagerDelegate,
     }
 
     func scan() {
-        guard central.state == .poweredOn else { return }
+        guard central.state == .poweredOn, peripheral == nil else { return }
+
+        // A previously discovered peripheral can be reconnected without scanning.
+        // This matters when the screen is locked: background scans are limited.
+        if let idString = UserDefaults.standard.string(forKey: "lastESP32ID"),
+           let id = UUID(uuidString: idString),
+           let saved = central.retrievePeripherals(withIdentifiers: [id]).first {
+            peripheral = saved
+            saved.delegate = self
+            status = "Reconnecting to known ESP32..."
+            central.connect(saved, options: nil)
+            return
+        }
+
         status = "Scanning for S3 Music..."
-        // Scan without a UUID filter: the ESP32 advertises its bridge UUID
-        // in the scan response, which may not satisfy an iOS service filter.
-        central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+        // Unfiltered scanning is needed for first setup while app is visible.
+        // iOS requires a UUID filter for scanning in the background.
+        let background = UIApplication.shared.applicationState != .active
+        central.scanForPeripherals(
+            withServices: background ? [BridgeUUID.service] : nil,
+            options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+        )
+    }
+
+    func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
+        guard let peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral],
+              let restored = peripherals.first else { return }
+        peripheral = restored
+        restored.delegate = self
+        status = "Restoring ESP32 Bluetooth connection..."
+        if restored.state == .connected {
+            isConnected = true
+            restored.discoverServices([BridgeUUID.service])
+        } else {
+            central.connect(restored, options: nil)
+        }
     }
 
     func centralManager(_ central: CBCentralManager,
@@ -66,6 +97,7 @@ final class ArtworkBridge: NSObject, ObservableObject, CBCentralManagerDelegate,
         guard name == "S3 Music" || advertisedServices.contains(BridgeUUID.service) else { return }
         self.peripheral = peripheral
         self.peripheral?.delegate = self
+        UserDefaults.standard.set(peripheral.identifier.uuidString, forKey: "lastESP32ID")
         central.stopScan()
         status = "Connecting to ESP32-S3..."
         central.connect(peripheral, options: nil)
@@ -79,6 +111,8 @@ final class ArtworkBridge: NSObject, ObservableObject, CBCentralManagerDelegate,
 
     func centralManager(_ central: CBCentralManager,
                         didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        // Clear stale identifiers so foreground scanning can find the board again.
+        UserDefaults.standard.removeObject(forKey: "lastESP32ID")
         status = "Connection failed: \(error?.localizedDescription ?? "unknown")"
         self.peripheral = nil
         artworkCharacteristic = nil
@@ -97,7 +131,12 @@ final class ArtworkBridge: NSObject, ObservableObject, CBCentralManagerDelegate,
         artistCharacteristic = nil
         isConnected = false
         packetQueue = []
-        scan()
+        if central.state == .poweredOn {
+            status = "Reconnecting to ESP32..."
+            self.peripheral = peripheral
+            peripheral.delegate = self
+            central.connect(peripheral, options: nil)
+        }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
