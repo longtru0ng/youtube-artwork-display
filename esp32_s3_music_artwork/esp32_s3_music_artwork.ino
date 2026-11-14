@@ -211,11 +211,13 @@ void loop() {
     lastSentTitle = songTitle;
     titleCharacteristic->setValue(std::string(songTitle.c_str()));
     titleCharacteristic->notify();
+    Serial.printf("BRIDGE TITLE: %s (BLE update sent)\n", songTitle.c_str());
   }
   if (songArtist != lastSentArtist) {
     lastSentArtist = songArtist;
     artistCharacteristic->setValue(std::string(songArtist.c_str()));
     artistCharacteristic->notify();
+    Serial.printf("BRIDGE ARTIST: %s (BLE update sent)\n", songArtist.c_str());
   }
   delay(80);
 }
