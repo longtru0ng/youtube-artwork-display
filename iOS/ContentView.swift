@@ -19,6 +19,7 @@ final class ArtworkBridge: NSObject, ObservableObject, CBCentralManagerDelegate,
     @Published var matchedSong = ""
     @Published var cover: UIImage?
     @Published var isConnected = false
+    @Published var lastBLEUpdate = "No song data received from ESP32 yet"
 
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
@@ -28,6 +29,8 @@ final class ArtworkBridge: NSObject, ObservableObject, CBCentralManagerDelegate,
     private var packetQueue: [Data] = []
     private var packetIndex = 0
     private var artworkBytes = 0
+    private var titleCharacteristic: CBCharacteristic?
+    private var artistCharacteristic: CBCharacteristic?
 
     override init() {
         super.init()
@@ -79,6 +82,8 @@ final class ArtworkBridge: NSObject, ObservableObject, CBCentralManagerDelegate,
         status = "Connection failed: \(error?.localizedDescription ?? "unknown")"
         self.peripheral = nil
         artworkCharacteristic = nil
+        titleCharacteristic = nil
+        artistCharacteristic = nil
         isConnected = false
         scan()
     }
@@ -88,6 +93,8 @@ final class ArtworkBridge: NSObject, ObservableObject, CBCentralManagerDelegate,
         status = "Disconnected. Scanning again..."
         self.peripheral = nil
         artworkCharacteristic = nil
+        titleCharacteristic = nil
+        artistCharacteristic = nil
         isConnected = false
         packetQueue = []
         scan()
@@ -106,7 +113,13 @@ final class ArtworkBridge: NSObject, ObservableObject, CBCentralManagerDelegate,
                     didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         if let error = error { status = "Characteristic error: \(error.localizedDescription)"; return }
         for characteristic in service.characteristics ?? [] {
-            if characteristic.uuid == BridgeUUID.title || characteristic.uuid == BridgeUUID.artist {
+            if characteristic.uuid == BridgeUUID.title {
+                titleCharacteristic = characteristic
+                peripheral.setNotifyValue(true, for: characteristic)
+                peripheral.readValue(for: characteristic)
+            }
+            if characteristic.uuid == BridgeUUID.artist {
+                artistCharacteristic = characteristic
                 peripheral.setNotifyValue(true, for: characteristic)
                 peripheral.readValue(for: characteristic)
             }
@@ -122,9 +135,31 @@ final class ArtworkBridge: NSObject, ObservableObject, CBCentralManagerDelegate,
         guard error == nil, let bytes = characteristic.value,
               let value = String(data: bytes, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
         if characteristic.uuid == BridgeUUID.title {
-            if title != value { title = value; scheduleLookup() }
+            if title != value {
+                title = value
+                lastBLEUpdate = "Received song: \(value)"
+                scheduleLookup()
+            }
         } else if characteristic.uuid == BridgeUUID.artist {
-            if artist != value { artist = value; scheduleLookup() }
+            if artist != value {
+                artist = value
+                lastBLEUpdate = "Received artist: \(value)"
+                scheduleLookup()
+            }
+        }
+    }
+
+    func peripheral(_ peripheral: CBPeripheral,
+                    didUpdateNotificationStateFor characteristic: CBCharacteristic,
+                    error: Error?) {
+        if let error = error {
+            lastBLEUpdate = "Notification setup failed: \(error.localizedDescription)"
+            return
+        }
+        if characteristic.isNotifying {
+            lastBLEUpdate = "Subscribed to BLE song updates"
+            // A song may already be playing when the companion app connects.
+            peripheral.readValue(for: characteristic)
         }
     }
 
@@ -305,6 +340,9 @@ struct ContentView: View {
                         .frame(width: 220, height: 220)
                         .overlay(Image(systemName: "music.note").font(.system(size: 48)))
                 }
+                Text(bridge.lastBLEUpdate)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 TextField("Song title", text: $bridge.title)
                     .textFieldStyle(.roundedBorder)
                 TextField("Artist", text: $bridge.artist)
