@@ -46,7 +46,9 @@ final class ArtworkBridge: NSObject, ObservableObject, CBCentralManagerDelegate,
     func scan() {
         guard central.state == .poweredOn else { return }
         status = "Scanning for S3 Music..."
-        central.scanForPeripherals(withServices: [BridgeUUID.service], options: nil)
+        // Scan without a UUID filter: the ESP32 advertises its bridge UUID
+        // in the scan response, which may not satisfy an iOS service filter.
+        central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
     }
 
     func centralManager(_ central: CBCentralManager,
@@ -54,6 +56,11 @@ final class ArtworkBridge: NSObject, ObservableObject, CBCentralManagerDelegate,
                         advertisementData: [String: Any],
                         rssi RSSI: NSNumber) {
         guard self.peripheral == nil else { return }
+        // Do not connect to arbitrary nearby BLE devices.
+        let localName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
+        let name = localName ?? peripheral.name ?? ""
+        let advertisedServices = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID]) ?? []
+        guard name == "S3 Music" || advertisedServices.contains(BridgeUUID.service) else { return }
         self.peripheral = peripheral
         self.peripheral?.delegate = self
         central.stopScan()
