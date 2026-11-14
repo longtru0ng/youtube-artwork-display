@@ -1,0 +1,50 @@
+name: Build unsigned iPhone app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+      - name: Build iPhone application without code signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project S3MusicArtwork.xcodeproj \
+            -scheme S3MusicArtwork \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+      - name: Package unsigned IPA for Windows sideloading
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$PWD/build/Build/Products/Release-iphoneos/S3MusicArtwork.app"
+          test -d "$APP"
+          mkdir -p ipa/Payload
+          cp -R "$APP" ipa/Payload/
+          cd ipa
+          zip -qr ../S3MusicArtwork-unsigned.ipa Payload
+      - name: Downloadable result
+        uses: actions/upload-artifact@v4
+        with:
+          name: S3MusicArtwork-unsigned-IPA
+          path: S3MusicArtwork-unsigned.ipa
+          if-no-files-found: error
