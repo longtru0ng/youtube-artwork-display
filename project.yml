@@ -13,13 +13,15 @@ targets:
     platform: iOS
     sources:
       - path: iOS
+    info:
+      path: iOS/Info.plist
+      properties:
+        NSBluetoothAlwaysUsageDescription: "Connect to my ESP32-S3 music display over Bluetooth."
+        UIBackgroundModes:
+          - bluetooth-central
+        UILaunchScreen: {}
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.s3musicdemo.artwork
-        GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: "Connect to my ESP32-S3 music display over Bluetooth."
-        INFOPLIST_KEY_UIBackgroundModes: [bluetooth-central]
-        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
         CODE_SIGN_STYLE: Automatic
         SUPPORTS_MACCATALYST: "NO"
